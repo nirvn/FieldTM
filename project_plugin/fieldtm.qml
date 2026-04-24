@@ -18,7 +18,9 @@ Item {
   property var mapCanvasContainer: iface.findItemByObjectName("mapCanvasContainer")
   property var busyOverlay: iface.findItemByObjectName("busyOverlay")
 
+  property var qfieldSettings: iface.findItemByObjectName("qfieldSettings")
   property ProjectInfo projectInfo: iface.findItemByObjectName("projectInfo")
+  
   property QFieldCloudConnection cloudConnection: iface.findItemByObjectName("cloudConnection")
   property QFieldCloudProjectsModel cloudProjectsModel: iface.findItemByObjectName("cloudProjectsModel")
 
@@ -278,7 +280,7 @@ Item {
 
   Component.onCompleted: {
     Theme.applyAppearance({ "mainColor":"#d73f3f", "buttonBackgroundColor":"#d73f3f" }, false);
-
+    fieldTM.qfieldSettings.autoOpenFormSingleIdentify = true;
     fieldTM.currentUser = projectInfo.cloudUserInformation.username;
 
     let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.tasksLayer, `"status" = 'assigned' and "assigned_to" = '${fieldTM.currentUser}'`);
