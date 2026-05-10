@@ -119,7 +119,7 @@ Item {
           linkColor: fieldTM.mainColor
 
           text: {
-            return fieldTM.cloudConnection.isReachable ? `<a href=\"#synchronize\">${qsTranslate("FieldTM", "Synchronize tasks")}</a>` : '';
+            return fieldTM.cloudConnection.hasToken && fieldTM.cloudConnection.isReachable ? `<a href=\"#synchronize\">${qsTranslate("FieldTM", "Synchronize tasks")}</a>` : '';
           }
 
           onLinkActivated: (link) => {
