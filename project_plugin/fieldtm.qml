@@ -28,9 +28,12 @@ Item {
 
   property string currentUser: ""
   property var currentTask: undefined
+  property bool currentTaskHasAddedFeature: false
 
   property var tasksLayer: qgisProject.mapLayersByName("tasks")[0];
   property var surveyLayer: qgisProject.mapLayersByName("survey")[0];
+
+  property string mainColor: "#d73f3f"
 
   Rectangle {
     id: fieldTMContainer
@@ -113,7 +116,7 @@ Item {
           font: Theme.tipFont
           color: "#99222222"
           wrapMode: Text.WordWrap
-          linkColor: Theme.mainColor
+          linkColor: fieldTM.mainColor
 
           text: {
             return fieldTM.cloudConnection.isReachable ? `<a href=\"#synchronize\">${qsTranslate("FieldTM", "Synchronize tasks")}</a>` : '';
@@ -150,22 +153,22 @@ Item {
         Shape {
           ShapePath {
             strokeColor: "transparent"
-            fillColor: Theme.mainColor
+            fillColor: fieldTM.mainColor
             PathSvg { path: "M 37.0266 20.775 C 37.0266 20.291 37.1298 19.859 37.3362 19.4862 C 37.541 19.1118 37.813 18.807 38.1506 18.5638 C 38.4866 18.3214 38.865 18.1374 39.2858 18.0134 C 39.705 17.8902 40.1274 17.8278 40.5538 17.8278 C 40.9786 17.8278 41.4026 17.8902 41.8234 18.0134 C 42.2418 18.1374 42.6202 18.3214 42.9562 18.5638 C 43.2946 18.807 43.5658 19.1118 43.7722 19.4862 C 43.9786 19.859 44.081 20.291 44.081 20.775 L 44.081 27.147 C 44.081 27.6414 43.9786 28.075 43.7722 28.4422 C 43.5658 28.811 43.2946 29.1142 42.9562 29.3574 C 42.6202 29.6014 42.2418 29.7862 41.8234 29.9086 C 41.4026 30.0318 40.9786 30.0934 40.5538 30.0934 C 40.1274 30.0934 39.705 30.0318 39.2858 29.9086 C 38.865 29.7862 38.4866 29.6014 38.1506 29.3574 C 37.813 29.1142 37.541 28.811 37.3362 28.4422 C 37.1298 28.075 37.0266 27.6414 37.0266 27.147 L 37.0266 20.775 M 39.0514 27.1502 C 39.0514 27.5654 39.2826 27.875 39.5658 28.0718 C 39.8474 28.2702 40.181 28.375 40.5658 28.375 C 40.949 28.375 41.2842 28.2702 41.5666 28.0718 C 41.8474 27.875 42.0082 27.5654 42.0082 27.1502 L 42.0082 20.7782 C 42.0082 20.3614 41.8474 20.0526 41.5666 19.8558 C 41.2842 19.6582 40.949 19.5254 40.5658 19.5254 C 40.181 19.5254 39.8474 19.6582 39.5658 19.8558 C 39.2826 20.0526 39.0514 20.3614 39.0514 20.7782 L 39.0514 27.1502 " }
           }
           ShapePath {
             strokeColor: "transparent"
-            fillColor: Theme.mainColor
+            fillColor: fieldTM.mainColor
             PathSvg { path: "M 33.379 17.815 L 33.379 22.99 L 30.152 22.99 L 30.152 17.815 L 28.387 17.815 L 28.387 30.1 L 30.152 30.1 L 30.152 24.923 L 33.379 24.923 L 33.379 30.1 L 35.278 30.1 L 35.278 17.815 L 33.379 17.815 " }
           }
           ShapePath {
             strokeColor: "transparent"
-            fillColor: Theme.mainColor
+            fillColor: fieldTM.mainColor
             PathSvg { path: "M 52.431 17.815 L 45.426 17.815 L 45.426 19.622 L 48.015 19.622 L 47.985 30.1 L 49.847 30.1 L 49.847 19.622 L 52.431 19.622 L 52.431 17.815 " }
           }
           ShapePath {
             strokeColor: "transparent"
-            fillColor: Theme.mainColor
+            fillColor: fieldTM.mainColor
             PathSvg { path: "M 65.4234 28.7668 L 79.6794 28.7668 L 71.1554 19.1684 L 62.669 9.57 L 54.181 0.0004 L 11.5394 0.0004 L 20.0258 9.57 L 5.73784 9.57 L 14.2258 19.1684 L 14.2914 19.2332 L 0.00024 19.2332 L 8.52184 28.8316 L 17.013 38.43 L 25.5002 48.0004 L 68.1418 48.0004 L 59.6506 38.43 L 59.5882 38.3364 L 73.8786 38.3364 L 65.4234 28.7668 M 39.8394 39.9492 C 30.3186 39.9492 22.601 32.8084 22.601 24.0012 C 22.601 15.1908 30.3186 8.05 39.8394 8.05 C 49.361 8.05 57.0794 15.1908 57.0794 24.0012 C 57.0794 32.8084 49.361 39.9492 39.8394 39.9492 " }
           }
         }
@@ -211,7 +214,7 @@ Item {
           Layout.preferredWidth: 36
           Layout.preferredHeight: 36
           Layout.alignment: Qt.AlignVCenter
-          visible: fieldTM.currentTask !== undefined
+          visible: fieldTM.currentTask !== undefined && (fieldTM.currentTaskHasAddedFeature || fieldTM.currentTask.attribute("status") === "completed")
 
           onClicked: {
             if (fieldTM.currentTask !== undefined) {
@@ -347,7 +350,7 @@ Item {
         pushToCloud();
       }
 
-      if (fieldTM.currentTask.attribute("status") !== "completed") {
+      if (!fieldTM.currentTaskHasAddedFeature && fieldTM.currentTask.attribute("status") !== "completed") {
         // Check if the task is readu to be marked as complete
         let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.surveyLayer, "intersects(@geometry, geom_from_wkt('" + fieldTM.currentTask.geometry.asWkt(8) + "'))")
         let markAsCompleted = it.hasNext()
@@ -399,6 +402,11 @@ Item {
   Connections {
     id: surveyLayerConnection
     target: surveyLayer
+    enabled: fieldTM.currentTask !== undefined
+
+    function onCommittedFeaturesAdded(layerId, addedFeatures) {
+      fieldTM.currentTaskHasAddedFeature = true;
+    }
 
     function onCommittedFeaturesRemoved(layerId, deletedFeatureIds) {
       updateCurrentTaskStatus();
@@ -414,16 +422,18 @@ Item {
   }
 
   onCurrentTaskChanged: {
+    fieldTM.currentTaskHasAddedFeature = false
+
     if (currentTask != undefined) {
       ExpressionContextUtils.setLayerVariable(tasksLayer,"current_task_id", currentTask.id);
     } else {
       ExpressionContextUtils.setLayerVariable(tasksLayer, "current_task_id", -1);
     }
+
     tasksLayer.triggerRepaint();
   }
 
   Component.onCompleted: {
-    Theme.applyAppearance({ "mainColor":"#d73f3f", "buttonBackgroundColor":"#d73f3f" }, false);
     fieldTM.qfieldSettings.autoOpenFormSingleIdentify = true;
     fieldTM.currentUser = projectInfo.cloudUserInformation.username;
 
@@ -480,8 +490,6 @@ Item {
   }
 
   Component.onDestruction: {
-    Theme.applyAppearance();
-
     const pointHandler = iface.findItemByObjectName("pointHandler");
     pointHandler.deregisterHandler("fieldTM");
   }
