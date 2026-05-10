@@ -253,27 +253,29 @@ Item {
         pushToCloud();
       }
 
-      // Check if the task is complete
-      let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.surveyLayer, "intersects(@geometry, geom_from_wkt('" + fieldTM.currentTask.geometry.asWkt(8) + "'))")
-      let markAsCompleted = it.hasNext()
-      while (it.hasNext()) {
-        const feature = it.next()
-        if (feature.attribute("status") == "") { // type coercion required
-          markAsCompleted = false;
+      if (fieldTM.currentTask.attribute("status") !== "completed") {
+        // Check if the task is readu to be marked as complete
+        let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.surveyLayer, "intersects(@geometry, geom_from_wkt('" + fieldTM.currentTask.geometry.asWkt(8) + "'))")
+        let markAsCompleted = it.hasNext()
+        while (it.hasNext()) {
+          const feature = it.next()
+          if (feature.attribute("status") == "") { // type coercion required
+            markAsCompleted = false;
+          }
         }
-      }
-      delete it;
+        delete it;
 
-      if (markAsCompleted) {
-        fieldTM.tasksLayer.startEditing();
-        fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "completed");
-        fieldTM.tasksLayer.commitChanges();
-        pushToCloud();
+        if (markAsCompleted) {
+          fieldTM.tasksLayer.startEditing();
+          fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "completed");
+          fieldTM.tasksLayer.commitChanges();
+          pushToCloud();
 
-        mainWindow.displayToast(qsTranslate("FieldTM", "Completed task #%1").arg(fieldTM.currentTask.attribute("task_id")));
-        rewardEmitter.reward();
+          mainWindow.displayToast(qsTranslate("FieldTM", "Completed task #%1").arg(fieldTM.currentTask.attribute("task_id")));
+          rewardEmitter.reward();
 
-        fieldTM.currentTask = undefined;
+          fieldTM.currentTask = undefined;
+        }
       }
     }
   }
