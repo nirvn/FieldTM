@@ -30,6 +30,7 @@ Item {
   property var currentTask: undefined
 
   property var tasksLayer: qgisProject.mapLayersByName("tasks")[0];
+  property var surveyLayer: qgisProject.mapLayersByName("survey")[0];
 
   Item {
     parent: mapCanvasContainer
@@ -154,30 +155,14 @@ Item {
 
         text: {
           if (fieldTM.currentTask != undefined) {
-            return `<a href=\"#release\">${qsTranslate("FieldTM", "Release task")}</a> / <a href=\"#completed\">${qsTranslate("FieldTM", "Mark task as completed")}</a>`;
+            return `<a href=\"#release\">${qsTranslate("FieldTM", "Release task")}</a>`;
           }
           return (fieldTM.cloudConnection.isReachable ? `<a href=\"#synchronize\">${qsTranslate("FieldTM", "Synchronize tasks")}</a> / ` : '') + `<a href=\"#projectarea\">${qsTranslate("FieldTM", "Zoom to project area")}</a>`;
         }
 
         onLinkActivated: (link) => {
           if (link === "#release") {
-            fieldTM.tasksLayer.startEditing();
-            fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "available");
-            fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("assigned_to"), "");
-            fieldTM.tasksLayer.commitChanges();
-            pushToCloud();
-
             mainWindow.displayToast(qsTranslate("FieldTM", "Released task #%1").arg(fieldTM.currentTask.attribute("task_id")));
-
-            fieldTM.currentTask = undefined;
-          } else if (link === "#completed") {
-            fieldTM.tasksLayer.startEditing();
-            fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "completed");
-            fieldTM.tasksLayer.commitChanges();
-            pushToCloud();
-
-            mainWindow.displayToast(qsTranslate("FieldTM", "Completed task #%1").arg(fieldTM.currentTask.attribute("task_id")));
-            rewardEmitter.reward();
 
             fieldTM.currentTask = undefined;
           } else if (link === "#projectarea") {
@@ -202,7 +187,7 @@ Item {
     id: rewardEmitter
     enabled: false
     parent: mapCanvasContainer
-    anchors.bottom: parent.bottom
+    anchors.top: parent.top
     anchors.horizontalCenter: parent.horizontalCenter
     width: 1; height: 1
     system: rewardSystem
@@ -212,7 +197,7 @@ Item {
     size: 10
     endSize: 2
     velocity: AngleDirection {
-      angle: 270; angleVariation: 45
+      angle: 90; angleVariation: 55
       magnitude: 500; magnitudeVariation: 100
     }
     acceleration: PointDirection { y: 200 }
@@ -256,6 +241,43 @@ Item {
     }
   }
 
+  function updateCurrentTaskStatus() {
+    if (fieldTM.currentTask != undefined) {
+      // If it hadn't been assigned yet, lay claim on it
+      if (fieldTM.currentTask.attribute("status") === "available") {
+        fieldTM.currentTask.setAttribute("status", "in_progress");
+
+        fieldTM.tasksLayer.startEditing();
+        fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "in_progress");
+        fieldTM.tasksLayer.commitChanges();
+        pushToCloud();
+      }
+
+      // Check if the task is complete
+      let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.surveyLayer, "intersects(@geometry, geom_from_wkt('" + fieldTM.currentTask.geometry.asWkt(8) + "'))")
+      let markAsCompleted = it.hasNext()
+      while (it.hasNext()) {
+        const feature = it.next()
+        if (feature.attribute("status") == "") { // type coercion required
+          markAsCompleted = false;
+        }
+      }
+      delete it;
+
+      if (markAsCompleted) {
+        fieldTM.tasksLayer.startEditing();
+        fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "completed");
+        fieldTM.tasksLayer.commitChanges();
+        pushToCloud();
+
+        mainWindow.displayToast(qsTranslate("FieldTM", "Completed task #%1").arg(fieldTM.currentTask.attribute("task_id")));
+        rewardEmitter.reward();
+
+        fieldTM.currentTask = undefined;
+      }
+    }
+  }
+
   Connections {
     id: cloudProjectConnection
     target: fieldTM.cloudProjectsModel.currentProject ? fieldTM.cloudProjectsModel.currentProject : null
@@ -278,12 +300,42 @@ Item {
     }
   }
 
+  Connections {
+    id: surveyLayerConnection
+    target: surveyLayer
+
+    function onCommittedFeaturesAdded(layerId, addedFeatures) {
+      updateCurrentTaskStatus();
+    }
+
+    function onCommittedFeaturesRemoved(layerId, deletedFeatureIds) {
+      updateCurrentTaskStatus();
+    }
+
+    function onCommittedAttributeValuesChanges(layerId, changedAttributesValues) {
+      updateCurrentTaskStatus();
+    }
+
+    function onCommittedGeometriesChanges(layerId, changedGeometries) {
+      updateCurrentTaskStatus();
+    }
+  }
+
+  onCurrentTaskChanged: {
+    if (currentTask != undefined) {
+      ExpressionContextUtils.setLayerVariable(tasksLayer,"current_task_id", currentTask.id);
+    } else {
+      ExpressionContextUtils.setLayerVariable(tasksLayer, "current_task_id", -1);
+    }
+    tasksLayer.triggerRepaint();
+  }
+
   Component.onCompleted: {
     Theme.applyAppearance({ "mainColor":"#d73f3f", "buttonBackgroundColor":"#d73f3f" }, false);
     fieldTM.qfieldSettings.autoOpenFormSingleIdentify = true;
     fieldTM.currentUser = projectInfo.cloudUserInformation.username;
 
-    let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.tasksLayer, `"status" = 'assigned' and "assigned_to" = '${fieldTM.currentUser}'`);
+    let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.tasksLayer, `"status" = 'in_progress' and "assigned_to" = '${fieldTM.currentUser}'`);
     if (it.hasNext()) {
       fieldTM.currentTask = it.next();
     } else {
@@ -293,7 +345,22 @@ Item {
 
     const pointHandler = iface.findItemByObjectName("pointHandler");
     pointHandler.registerHandler("fieldTM", (point, type, interactionType) => {
-                                   if (fieldTM.currentTask != undefined || interactionType !== "clicked") {
+                                   if (fieldTM.currentTask != undefined) {
+                                     if (interactionType === "clicked") {
+                                       const tl = fieldTM.mapCanvas.mapSettings.screenToCoordinate(Qt.point(point.x - 4, point.y - 4));
+                                       const br = fieldTM.mapCanvas.mapSettings.screenToCoordinate(Qt.point(point.x + 4, point.y + 4));
+                                       const rectangle = GeometryUtils.reprojectRectangle(GeometryUtils.createRectangleFromPoints(tl, br), fieldTM.mapCanvas.mapSettings.destinationCrs, fieldTM.surveyLayer.crs);
+                                       let it = LayerUtils.createFeatureIteratorFromRectangle(fieldTM.surveyLayer, rectangle);
+                                       while (it.hasNext()) {
+                                         const feature = it.next();
+                                         if (GeometryUtils.geometryWithin(feature.geometry, fieldTM.currentTask.geometry) || GeometryUtils.geometryOverlaps(feature.geometry, fieldTM.currentTask.geometry)) {
+                                           delete it;
+                                           return false;
+                                         }
+                                       }
+                                       delete it;
+                                       return true;
+                                     }
                                      return false;
                                    }
 
@@ -303,24 +370,17 @@ Item {
 
                                    let it = LayerUtils.createFeatureIteratorFromRectangle(fieldTM.tasksLayer, rectangle);
                                    if (it.hasNext()) {
-                                     let feature = it.next();
-                                     if (feature.attribute("status") === "available" || feature.attribute("assigned_to") === fieldTM.currentUser) {
-                                       feature.setAttribute("status", "assigned");
-                                       feature.setAttribute("assigned_to", fieldTM.currentUser);
-                                       fieldTM.currentTask = it.next();
+                                     fieldTM.currentTask = it.next();
 
+                                     if (fieldTM.currentTask.attribute("assigned_to") == "") {
                                        fieldTM.tasksLayer.startEditing();
-                                       fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "assigned");
                                        fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("assigned_to"), fieldTM.currentUser);
                                        fieldTM.tasksLayer.commitChanges();
                                        pushToCloud();
-
-                                       mainWindow.displayToast(qsTranslate("FieldTM", "Assigned task #%1").arg(fieldTM.currentTask.attribute("task_id")));
-                                     } else {
-                                       mainWindow.displayToast(qsTranslate("FieldTM", "Task #%1 unavailable").arg(feature.attribute("task_id")));
                                      }
-                                   }
 
+                                     mainWindow.displayToast(qsTranslate("FieldTM", "Assigned task #%1").arg(fieldTM.currentTask.attribute("task_id")));
+                                   }
                                    return true;
                                  });
 
