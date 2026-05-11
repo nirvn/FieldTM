@@ -14,6 +14,7 @@ Item {
   id: fieldTM
 
   property var mainWindow: iface.mainWindow()
+  property var featureListForm: iface.findItemByObjectName("featureForm")
   property var mapCanvas: iface.mapCanvas()
   property var mapCanvasContainer: iface.findItemByObjectName("mapCanvasContainer")
   property var busyOverlay: iface.findItemByObjectName("busyOverlay")
@@ -249,6 +250,28 @@ Item {
         }
 
         QfToolButton {
+          id: openPendingFeaturesButton
+          round: true
+
+          iconSource: Theme.getThemeVectorIcon("ic_list_black_24dp")
+          iconColor: "#000000"
+          bgcolor: "#ffffff"
+          padding: 0
+
+          Layout.preferredWidth: 36
+          Layout.preferredHeight: 36
+          Layout.rightMargin: 8
+          Layout.alignment: Qt.AlignVCenter
+          visible: fieldTM.currentTask !== undefined
+
+          onClicked: {
+            let filterExpression = "\"status\" is null or \"status\" = '' and intersects(@geometry, geom_from_wkt('"+fieldTM.currentTask.geometry.asWkt(8)+"'))"
+            fieldTM.featureListForm.model.setFeatures(fieldTM.surveyLayer, filterExpression);
+            featureListForm.extentController.zoomToAllFeatures();
+          }
+        }
+
+        QfToolButton {
           id: zoomToButton
           round: true
 
@@ -428,13 +451,17 @@ Item {
       ExpressionContextUtils.setLayerVariable(tasksLayer,"current_task_id", currentTask.id);
     } else {
       ExpressionContextUtils.setLayerVariable(tasksLayer, "current_task_id", -1);
+      fieldTM.featureListForm.model.clear();
     }
 
     tasksLayer.triggerRepaint();
   }
 
   Component.onCompleted: {
+    // Adjust app-wide settings to increase user-friendlyness
     fieldTM.qfieldSettings.autoOpenFormSingleIdentify = true;
+    fieldTM.qfieldSettings.autoZoomToIdentifiedFeature = true;
+
     fieldTM.currentUser = projectInfo.cloudUserInformation.username;
 
     let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.tasksLayer, `"status" = 'in_progress' and "assigned_to" = '${fieldTM.currentUser}'`);
