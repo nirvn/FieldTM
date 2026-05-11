@@ -178,7 +178,7 @@ Item {
       RowLayout {
         width: parent.width
         height: parent.height
-        spacing: 4
+        spacing: 8
 
         QfToolButton {
           id: releaseButton
@@ -260,7 +260,6 @@ Item {
 
           Layout.preferredWidth: 36
           Layout.preferredHeight: 36
-          Layout.rightMargin: 8
           Layout.alignment: Qt.AlignVCenter
           visible: fieldTM.currentTask !== undefined
 
