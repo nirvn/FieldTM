@@ -478,6 +478,7 @@ Item {
     let groupNames = LayerUtils.uniqueValuesForVectorLayerFieldIndex(fieldTM.tasksLayer, fieldTM.tasksLayer.fields.indexOf("group"));
     groupNames = groupNames.filter(name => name != "");
     groupNames = [""].concat(groupNames);
+    groupNames.sort();
     groupComboBox.model = groupNames;
     if ("current_group" in projectVariables && groupNames.indexOf(projectVariables["current_group"]) > -1) {
       fieldTM.currentGroup = projectVariables["current_group"];
