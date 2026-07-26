@@ -18,6 +18,7 @@ Item {
   property var mapCanvas: iface.mapCanvas()
   property var mapCanvasContainer: iface.findItemByObjectName("mapCanvasContainer")
   property var busyOverlay: iface.findItemByObjectName("busyOverlay")
+  property var locatorItem: iface.findItemByObjectName("locatorItem")
 
   property var qfieldSettings: iface.findItemByObjectName("qfieldSettings")
   property ProjectInfo projectInfo: iface.findItemByObjectName("projectInfo")
@@ -28,22 +29,26 @@ Item {
   property bool outdated: false
 
   property string currentUser: ""
+  property string currentGroup: ""
   property var currentTask: undefined
-  property bool currentTaskHasAddedFeature: false
 
   property var tasksLayer: qgisProject.mapLayersByName("tasks")[0];
+  property var tasksEventsLayer: qgisProject.mapLayersByName("tasks_events")[0];
+  
   property var surveyLayer: qgisProject.mapLayersByName("survey")[0];
+  property var surveyEventsLayer: qgisProject.mapLayersByName("survey_events")[0];
 
   property string mainColor: "#d73f3f"
 
   Rectangle {
     id: fieldTMContainer
     parent: mapCanvasContainer
+    visible: locatorItem.state === "off"
     anchors {
       top: parent.top
       left: parent.left
       right: parent.right
-      topMargin: mainWindow.sceneTopMargin + 56
+      topMargin: mainWindow.sceneTopMargin + 4
       leftMargin: mainWindow.sceneLeftMargin + 56
       rightMargin: mainWindow.sceneRightMargin + 56
     }
@@ -54,11 +59,14 @@ Item {
         top: parent.top
         left: parent.left
         right: parent.right
-        topMargin: 24
+        topMargin: 20
       }
 
       height: fieldTM.currentTask === undefined ? informationLayout.childrenRect.height + 48 : 0
       Behavior on height {
+        id: informationBehavior
+        enabled: false
+
         PropertyAnimation {
           duration: 250
           easing.type: Easing.OutQuart
@@ -66,11 +74,12 @@ Item {
       }
 
       gradient: Gradient {
-        GradientStop { position: 0.0; color: "#fdebef" }
-        GradientStop { position: 1.0; color: "#ffffff" }
+        GradientStop { position: 0.0; color: Theme.darkTheme ? "#452727" : "#fdebef" }
+        GradientStop { position: 1.0; color: Theme.controlBackgroundColor }
       }
+
       border.width: 1
-      border.color: "#fdcfd6"
+      border.color: Theme.darkTheme ? "#452727" : "#fdebef"
       radius: 12
       clip: true
 
@@ -87,8 +96,30 @@ Item {
 
         Text {
           Layout.fillWidth: true
+          Layout.preferredHeight: text !== "" ? contentHeight : 0
           font: Theme.tipFont
-          color: "#222222"
+          color: Theme.mainTextColor
+          wrapMode: Text.WordWrap
+
+          text: groupComboBox.count > 0 ? qsTranslate("FieldTM", "Pick your group to focus on a subset of tasks.") : ""
+        }
+
+        QfComboBox {
+          id: groupComboBox
+          Layout.fillWidth: true
+          visible: count > 1
+
+          onCurrentTextChanged: {
+            if (fieldTM.currentGroup !== currentText) {
+              fieldTM.currentGroup = currentText;
+            }
+          }
+        }
+
+        Text {
+          Layout.fillWidth: true
+          font: Theme.tipFont
+          color: Theme.mainTextColor
           wrapMode: Text.WordWrap
 
           text: {
@@ -100,36 +131,14 @@ Item {
           Layout.fillWidth: true
           Layout.preferredHeight: text !== "" ? contentHeight : 0
           font: Theme.tipFont
-          color: "#f67c0f"
+          color: Theme.warningColor
           wrapMode: Text.WordWrap
 
           text: {
             if (fieldTM.outdated) {
-              return qsTranslate("FieldTM", "Data coordinate occured over half an hour ago, synchronizing is recommended.");
+              return qsTranslate("FieldTM", "Data sync occurred over half an hour ago, synchronizing is recommended.");
             }
             return "";
-          }
-        }
-
-        Text {
-          Layout.fillWidth: true
-          Layout.preferredHeight: text !== "" ? contentHeight : 0
-          font: Theme.tipFont
-          color: "#99222222"
-          wrapMode: Text.WordWrap
-          linkColor: fieldTM.mainColor
-
-          text: {
-            return fieldTM.cloudConnection.hasToken && fieldTM.cloudConnection.isReachable ? `<a href=\"#synchronize\">${qsTranslate("FieldTM", "Synchronize tasks")}</a>` : '';
-          }
-
-          onLinkActivated: (link) => {
-            if (link === "#synchronize") {
-              fieldTM.busyOverlay.text = qsTranslate("FieldTM", "Synchronizing tasks");
-              fieldTM.busyOverlay.showProgress = false;
-              fieldTM.busyOverlay.state = "visible";
-              synchronizeCloud();
-            }
           }
         }
       }
@@ -184,7 +193,7 @@ Item {
           id: releaseButton
           round: true
 
-          iconSource: Theme.getThemeVectorIcon("ic_arrow_left_white_24dp")
+          iconSource: fieldTM.currentTask !== undefined ? Theme.getThemeVectorIcon("ic_arrow_left_white_24dp") : Theme.getThemeVectorIcon("refresh_24dp")
           iconColor: "#000000"
           bgcolor: "#ffffff"
           padding: 0
@@ -193,12 +202,16 @@ Item {
           Layout.preferredHeight: 36
           Layout.leftMargin: 8
           Layout.alignment: Qt.AlignVCenter
-          visible: fieldTM.currentTask !== undefined
 
           onClicked: {
             if (fieldTM.currentTask !== undefined) {
               mainWindow.displayToast(qsTranslate("FieldTM", "Released task #%1").arg(fieldTM.currentTask.attribute("task_id")));
               fieldTM.currentTask = undefined;
+            } else {
+              fieldTM.busyOverlay.text = qsTranslate("FieldTM", "Synchronizing tasks");
+              fieldTM.busyOverlay.showProgress = false;
+              fieldTM.busyOverlay.state = "visible";
+              synchronizeCloud();
             }
           }
         }
@@ -215,26 +228,18 @@ Item {
           Layout.preferredWidth: 36
           Layout.preferredHeight: 36
           Layout.alignment: Qt.AlignVCenter
-          visible: fieldTM.currentTask !== undefined && (fieldTM.currentTaskHasAddedFeature || fieldTM.currentTask.attribute("status") === "completed")
+          visible: fieldTM.currentTask !== undefined
 
           onClicked: {
             if (fieldTM.currentTask !== undefined) {
-              // TODO: should we bail out when detecting incomplete survey features?
-
-              // Check if the task is readu to be marked as complete
-              //let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.surveyLayer, "intersects(@geometry, geom_from_wkt('" + fieldTM.currentTask.geometry.asWkt(8) + "'))")
-              //let allowMarkAsCompleted = it.hasNext()
-              //while (it.hasNext()) {
-              //  const feature = it.next()
-              //  if (feature.attribute("status") == "") { // type coercion required
-              //    allowMarkAsCompleted = false;
-              //  }
-              //}
-              //delete it;
-
-              fieldTM.tasksLayer.startEditing();
-              fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "completed");
-              fieldTM.tasksLayer.commitChanges();
+              let eventFeature = FeatureUtils.createFeature(fieldTM.tasksEventsLayer);
+              eventFeature.setAttribute("task_id", fieldTM.currentTask.attribute("task_id"));
+              eventFeature.setAttribute("event_type", "status");
+              eventFeature.setAttribute("event_value", "completed");
+              eventFeature.setAttribute("user", fieldTM.currentUser);
+              fieldTM.tasksEventsLayer.startEditing();
+              LayerUtils.addFeature(fieldTM.tasksEventsLayer, eventFeature);
+              fieldTM.tasksEventsLayer.commitChanges();
               pushToCloud();
 
               mainWindow.displayToast(qsTranslate("FieldTM", "Marked task #%1 as completed").arg(fieldTM.currentTask.attribute("task_id")));
@@ -250,7 +255,7 @@ Item {
         }
 
         QfToolButton {
-          id: openPendingFeaturesButton
+          id: openFeaturesButton
           round: true
 
           iconSource: Theme.getThemeVectorIcon("ic_list_black_24dp")
@@ -264,7 +269,7 @@ Item {
           visible: fieldTM.currentTask !== undefined
 
           onClicked: {
-            let filterExpression = "\"status\" is null or \"status\" = '' and intersects(@geometry, geom_from_wkt('"+fieldTM.currentTask.geometry.asWkt(8)+"'))"
+            let filterExpression = "intersects(@geometry, geom_from_wkt('"+fieldTM.currentTask.geometry.asWkt(8)+"'))"
             fieldTM.featureListForm.model.setFeatures(fieldTM.surveyLayer, filterExpression);
             featureListForm.extentController.zoomToAllFeatures();
           }
@@ -359,43 +364,36 @@ Item {
       fieldTM.outdated = false;
     }
   }
-
-  function updateCurrentTaskStatus() {
-    if (fieldTM.currentTask != undefined) {
-      // If it hadn't been assigned yet, lay claim on it
-      if (fieldTM.currentTask.attribute("status") === "available") {
-        fieldTM.currentTask.setAttribute("status", "in_progress");
-
-        fieldTM.tasksLayer.startEditing();
-        fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "in_progress");
-        fieldTM.tasksLayer.commitChanges();
+  
+  function touchCurrentTask() {
+    if (fieldTM.currentTask !== undefined) {
+      let status = fieldTM.currentTask.attribute("tasks_status_value");
+      if (status === undefined || status === "") {
+        let eventFeature = FeatureUtils.createFeature(fieldTM.tasksEventsLayer);
+        eventFeature.setAttribute("task_id", fieldTM.currentTask.attribute("task_id"));
+        eventFeature.setAttribute("event_type", "status");
+        eventFeature.setAttribute("event_value", "in_progress");
+        eventFeature.setAttribute("user", fieldTM.currentUser);
+        fieldTM.tasksEventsLayer.startEditing();
+        LayerUtils.addFeature(fieldTM.tasksEventsLayer, eventFeature);
+        fieldTM.tasksEventsLayer.commitChanges();
         pushToCloud();
+
+        fieldTM.currentTask.setAttribute("tasks_status_value", "in_progress")
       }
+    }
+  }
 
-      if (!fieldTM.currentTaskHasAddedFeature && fieldTM.currentTask.attribute("status") !== "completed") {
-        // Check if the task is readu to be marked as complete
-        let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.surveyLayer, "intersects(@geometry, geom_from_wkt('" + fieldTM.currentTask.geometry.asWkt(8) + "'))")
-        let markAsCompleted = it.hasNext()
-        while (it.hasNext()) {
-          const feature = it.next()
-          if (feature.attribute("status") == "") { // type coercion required
-            markAsCompleted = false;
-          }
-        }
-        delete it;
-
-        if (markAsCompleted) {
-          fieldTM.tasksLayer.startEditing();
-          fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("status"), "completed");
-          fieldTM.tasksLayer.commitChanges();
-          pushToCloud();
-
-          mainWindow.displayToast(qsTranslate("FieldTM", "Completed task #%1").arg(fieldTM.currentTask.attribute("task_id")));
-          rewardEmitter.reward();
-
-          fieldTM.currentTask = undefined;
-        }
-      }
+  function touchSurveyFeature(surveyFeature) {
+    if (surveyFeature !== undefined) {
+      let eventFeature = FeatureUtils.createFeature(fieldTM.surveyEventsLayer);
+      eventFeature.setAttribute("survey_uuid", surveyFeature.attribute("uuid"));
+      eventFeature.setAttribute("event_type", "status");
+      eventFeature.setAttribute("event_value", "mapped");
+      eventFeature.setAttribute("user", fieldTM.currentUser);
+      fieldTM.surveyEventsLayer.startEditing();
+      LayerUtils.addFeature(fieldTM.surveyEventsLayer, eventFeature);
+      fieldTM.surveyEventsLayer.commitChanges();
     }
   }
 
@@ -427,29 +425,32 @@ Item {
     enabled: fieldTM.currentTask !== undefined
 
     function onCommittedFeaturesAdded(layerId, addedFeatures) {
-      fieldTM.currentTaskHasAddedFeature = true;
-    }
-
-    function onCommittedFeaturesRemoved(layerId, deletedFeatureIds) {
-      updateCurrentTaskStatus();
+      for (addedFeature of addedFeatures) {
+        touchSurveyFeature(addedFeature);
+      }
+      touchCurrentTask();
     }
 
     function onCommittedAttributeValuesChanges(layerId, changedAttributesValues) {
-      updateCurrentTaskStatus();
-    }
-
-    function onCommittedGeometriesChanges(layerId, changedGeometries) {
-      updateCurrentTaskStatus();
+      touchSurveyFeature(fieldTM.featureListForm.selection.focusedFeature);
+      touchCurrentTask();
     }
   }
 
-  onCurrentTaskChanged: {
-    fieldTM.currentTaskHasAddedFeature = false
+  onCurrentGroupChanged: {
+    ExpressionContextUtils.setProjectVariable(qgisProject ,"current_group", currentGroup);
+    projectInfo.saveVariable("current_group", currentGroup);
 
+    tasksLayer.triggerRepaint();
+  }
+
+  onCurrentTaskChanged: {
     if (currentTask != undefined) {
-      ExpressionContextUtils.setLayerVariable(tasksLayer,"current_task_id", currentTask.id);
+      ExpressionContextUtils.setProjectVariable(qgisProject ,"current_task_id", currentTask.id);
+      projectInfo.saveVariable("current_task_id", currentTask.id);
     } else {
-      ExpressionContextUtils.setLayerVariable(tasksLayer, "current_task_id", -1);
+      ExpressionContextUtils.setProjectVariable(qgisProject ,"current_task_id", -1);
+      projectInfo.saveVariable("current_task_id", -1);
       fieldTM.featureListForm.model.clear();
     }
 
@@ -462,14 +463,26 @@ Item {
     fieldTM.qfieldSettings.autoZoomToIdentifiedFeature = true;
 
     fieldTM.currentUser = projectInfo.cloudUserInformation.username;
+    fieldTM.currentTask = undefined;
 
-    let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.tasksLayer, `"status" = 'in_progress' and "assigned_to" = '${fieldTM.currentUser}'`);
-    if (it.hasNext()) {
-      fieldTM.currentTask = it.next();
-    } else {
-      fieldTM.currentTask = undefined;
+    const projectVariables = ExpressionContextUtils.projectVariables(qgisProject);
+
+    if ("current_task_id" in projectVariables && projectVariables["current_task_id"] !== -1) {
+      let it = LayerUtils.createFeatureIteratorFromExpression(fieldTM.tasksLayer, '"task_id" = ' + projectVariables["current_task_id"]);
+      if (it.hasNext()) {
+        fieldTM.currentTask = it.next();
+      }
     }
-    delete it;
+    informationBehavior.enabled = true;
+
+    let groupNames = LayerUtils.uniqueValuesForVectorLayerFieldIndex(fieldTM.tasksLayer, fieldTM.tasksLayer.fields.indexOf("group"));
+    groupNames = groupNames.filter(name => name != "");
+    groupNames = [""].concat(groupNames);
+    groupComboBox.model = groupNames;
+    if ("current_group" in projectVariables && groupNames.indexOf(projectVariables["current_group"]) > -1) {
+      fieldTM.currentGroup = projectVariables["current_group"];
+      groupComboBox.currentIndex = groupNames.indexOf(projectVariables["current_group"]);
+    }
 
     const pointHandler = iface.findItemByObjectName("pointHandler");
     pointHandler.registerHandler("fieldTM", (point, type, interactionType) => {
@@ -499,14 +512,6 @@ Item {
                                    let it = LayerUtils.createFeatureIteratorFromRectangle(fieldTM.tasksLayer, rectangle);
                                    if (it.hasNext()) {
                                      fieldTM.currentTask = it.next();
-
-                                     if (fieldTM.currentTask.attribute("assigned_to") == "") {
-                                       fieldTM.tasksLayer.startEditing();
-                                       fieldTM.tasksLayer.changeAttributeValue(fieldTM.currentTask.id, fieldTM.tasksLayer.fields.indexOf("assigned_to"), fieldTM.currentUser);
-                                       fieldTM.tasksLayer.commitChanges();
-                                       pushToCloud();
-                                     }
-
                                      mainWindow.displayToast(qsTranslate("FieldTM", "Assigned task #%1").arg(fieldTM.currentTask.attribute("task_id")));
                                    }
                                    return true;
